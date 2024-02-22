@@ -249,6 +249,10 @@ class Flashbots(Module):
     def raw_bundle_formatter(self, resp) -> Any:
         return lambda _: resp.response
 
+    # Define the method here
+    """
+        TODO: make send_bundle method competiable with multiple builder urls
+    """
     sendBundle: Method[Callable[[Any], Any]] = Method(
         FlashbotsRPC.eth_sendBundle,
         mungers=[send_bundle_munger],

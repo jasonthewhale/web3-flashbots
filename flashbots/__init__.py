@@ -28,6 +28,8 @@ def flashbot(
     if endpoint_uri is not None and "goerli" in endpoint_uri:
         w3.middleware_onion.inject(geth_poa_middleware, layer=0)
 
+    # TODO: Handle send_bundle function calls with multiple builder rpcs
+
     flash_middleware = construct_flashbots_middleware(flashbots_provider)
     w3.middleware_onion.add(flash_middleware)
 
