@@ -193,7 +193,6 @@ class Flashbots(Module):
                 raw = encode_transaction(unsigned_tx, vrs=(v, r, s))
                 assert self.web3.keccak(raw) == tx["hash"]
                 signed_transactions.append(raw)
-
         return signed_transactions
 
     def to_hex(self, signed_transaction: bytes) -> str:
@@ -328,6 +327,7 @@ class Flashbots(Module):
 
     def extrapolate_timestamp(self, block_tag: int, latest_block_number: int):
         block_delta = block_tag - latest_block_number
+        # print(block_tag, latest_block_number)
         if block_delta < 0:
             raise Exception("block extrapolation negative")
         return self.web3.eth.get_block(latest_block_number)["timestamp"] + (
@@ -349,10 +349,11 @@ class Flashbots(Module):
             {
                 "txs": list(map(lambda x: x.hex(), signed_bundled_transactions)),
                 "blockNumber": evm_block_number,
-                "stateBlockNumber": evm_block_state_number,
-                "timestamp": evm_timestamp,
+                "stateBlockNumber": 'latest',
+                "timestamp": evm_timestamp
             }
         ]
+        # print(inpt)
         return inpt
 
     call_bundle: Method[Callable[[Any], Any]] = Method(

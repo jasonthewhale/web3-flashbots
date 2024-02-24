@@ -10,9 +10,12 @@ Environment Variables:
 """
 
 import os
+import time
 import secrets
+import json
+import requests
 from uuid import uuid4
-from eth_account.account import Account
+from eth_account import Account, messages
 from eth_account.signers.local import LocalAccount
 from flashbots import flashbot
 from web3 import Web3, HTTPProvider
@@ -20,9 +23,17 @@ from web3.exceptions import TransactionNotFound
 from web3.types import TxParams
 
 # change this to `False` if you want to use mainnet
-USE_GOERLI = True
-CHAIN_ID = 5 if USE_GOERLI else 1
+USE_SEPOLIA = True
+CHAIN_ID = 5 if USE_SEPOLIA else 1
 
+w3 = Web3(HTTPProvider('https://goerli.infura.io/v3/'))
+
+# account to send the transfer and sign transactions
+sender: LocalAccount = Account.from_key('')
+
+# account to sign bundles & establish flashbots reputation
+# NOTE: this account should not store funds
+signer: LocalAccount = Account.from_key('')
 
 def env(key: str) -> str:
     return os.environ.get(key)
@@ -32,19 +43,51 @@ def random_account() -> LocalAccount:
     key = "0x" + secrets.token_hex(32)
     return Account.from_key(key)
 
+def simulate_bundle(bundle, target_blk_num):
+    url = 'https://relay-sepolia.flashbots.net'
+
+    target_blk_hex = w3.toHex(target_blk_num)
+    data = {
+        "jsonrpc": "2.0",
+        "id": 0,
+        "method": "eth_callBundle",
+        "params": [
+            {
+                'txs': bundle,  # List of signed transactions
+                'blockNumber': target_blk_hex,  # Block number
+                "stateBlockNumber": "latest"
+            }
+        ]
+    }
+
+    body = json.dumps(data)
+    message = messages.encode_defunct(text=Web3.keccak(text=body).hex())
+    signature = signer.address + ':' + Account.sign_message(message, signer.privateKey.hex()).signature.hex()
+
+    headers = {
+        'Content-Type': 'application/json',
+        'X-Flashbots-Signature': signature,
+    }
+
+    response = requests.post(url, data=body, headers=headers)
+    return response.json()
+
 
 def main() -> None:
-    # account to send the transfer and sign transactions
-    sender: LocalAccount = Account.from_key(env("ETH_SENDER_KEY"))
     # account to receive the transfer
     receiverAddress: str = random_account().address
-    # account to sign bundles & establish flashbots reputation
-    # NOTE: this account should not store funds
-    signer: LocalAccount = Account.from_key(env("ETH_SIGNER_KEY"))
 
-    w3 = Web3(HTTPProvider(env("PROVIDER_URL")))
-    if USE_GOERLI:
-        flashbot(w3, signer, "https://relay-goerli.flashbots.net")
+    """
+        self.titan_url = 'https://rpc.titanbuilder.xyz/'
+        self.beaver_url = 'https://rpc.beaverbuild.org/'
+        self.builder69_url = 'https://builder0x69.io/'
+        self.rsync_url = 'https://rsync-builder.xyz/'
+        self.flashbots_url = 'https://relay.flashbots.net'
+        self.builder_urls = [self.titan_url, self.beaver_url, self.builder69_url, self.rsync_url, self.flashbots_url]
+    """
+
+    if USE_SEPOLIA:
+        flashbot(w3, signer, 'https://relay-goerli.flashbots.net')
     else:
         flashbot(w3, signer)
 
@@ -62,6 +105,7 @@ def main() -> None:
     # NOTE: nonce is required for signed txns
 
     nonce = w3.eth.get_transaction_count(sender.address)
+    print(f"Nonce: {nonce}")
     tx1: TxParams = {
         "to": receiverAddress,
         "value": Web3.toWei(0.001, "ether"),
@@ -73,6 +117,8 @@ def main() -> None:
         "type": 2,
     }
     tx1_signed = sender.sign_transaction(tx1)
+    # print(tx1_signed.rawTransaction)
+    # exit(0)
 
     tx2: TxParams = {
         "to": receiverAddress,
@@ -87,20 +133,28 @@ def main() -> None:
 
     bundle = [
         {"signed_transaction": tx1_signed.rawTransaction},
-        {"signer": sender, "transaction": tx2},
+        {"signer": sender, "transaction": tx2}
     ]
+    print(f"Bundle: {bundle}")
+
 
     # keep trying to send bundle until it gets mined
     while True:
         block = w3.eth.block_number
         print(f"Simulating on block {block}")
         # simulate bundle on current block
-        try:
-            w3.flashbots.simulate(bundle, block)
-            print("Simulation successful.")
-        except Exception as e:
-            print("Simulation error", e)
-            return
+        """
+            block is an optional parameter for simulate, if not provided, the current block is used
+            however, if your rpc provider is not fast enough, you might get error: "block extrapolation negative"
+            see extrapolate_timestamp() in flashbots/flashbots.py
+        """
+        # try:
+        #     res = simulate_bundle(bundle, block)
+        #     print("Simulation result", res)
+        #     print("Simulation successful.")
+        # except Exception as e:
+        #     print("Simulation error", e)
+        #     return
 
         # send bundle targeting next block
         print(f"Sending bundle targeting block {block+1}")
@@ -108,10 +162,12 @@ def main() -> None:
         print(f"replacementUuid {replacement_uuid}")
         send_result = w3.flashbots.send_bundle(
             bundle,
-            target_block_number=block + 1,
+            target_block_number=block + 10,
             opts={"replacementUuid": replacement_uuid},
         )
         print("bundleHash", w3.toHex(send_result.bundle_hash()))
+
+        time.sleep(12)
 
         stats_v1 = w3.flashbots.get_bundle_stats(
             w3.toHex(send_result.bundle_hash()), block
@@ -131,8 +187,9 @@ def main() -> None:
         except TransactionNotFound:
             print(f"Bundle not found in block {block+1}")
             # essentially a no-op but it shows that the function works
-            cancel_res = w3.flashbots.cancel_bundles(replacement_uuid)
-            print(f"canceled {cancel_res}")
+            # cancel_res = w3.flashbots.cancel_bundles(replacement_uuid)
+            # print(f"canceled {cancel_res}\n")
+        
 
     print(
         f"Sender account balance: {Web3.fromWei(w3.eth.get_balance(sender.address), 'ether')} ETH"

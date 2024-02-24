@@ -53,6 +53,7 @@ class FlashbotProvider(HTTPProvider):
                 "eth_sendPrivateTransaction is not supported on Goerli Endpoint"
             )
 
+        # print(f"Request data: {request_data}")
         raw_response = make_post_request(
             self.endpoint_uri, request_data, headers=headers
         )
