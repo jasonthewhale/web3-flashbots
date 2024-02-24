@@ -198,6 +198,5 @@ def main() -> None:
         f"Receiver account balance: {Web3.fromWei(w3.eth.get_balance(receiverAddress), 'ether')} ETH"
     )
 
-
 if __name__ == "__main__":
     main()
